@@ -513,9 +513,12 @@ export class PickerScreen implements Component, Focusable {
       : Math.min(pageCount - 1, this.pageIndex ?? Math.ceil(this.viewportStart / this.listRows()));
     const help = "Enter copy · ←/→ prev/next page · Ctrl+T tools · PgUp/PgDn scroll preview · Esc close";
     const status = this.status();
+    const matches = this.visibleItems().length;
+    const countText = this.queryInput.getValue() ? `${matches} ${matches === 1 ? "match" : "matches"}` : "";
+    const matchCount = countText && width >= visibleWidth("type to search > ") + visibleWidth(this.queryInput.getValue()) + visibleWidth(countText) + 2 ? " " + this.theme.fg("dim", countText) : "";
     const prefix = `Page ${pageIndex + 1}/${pageCount} ${this.theme.fg("dim", `(tool messages ${this.showTools ? "included" : "excluded"})`)}, `;
-    const inputWidth = Math.min(width, visibleWidth("type to search > ") + visibleWidth(this.queryInput.getValue()) + 1);
-    const shownPrefix = truncateToWidth(prefix, Math.max(0, width - inputWidth), "");
+    const inputWidth = Math.min(width - visibleWidth(matchCount), visibleWidth("type to search > ") + visibleWidth(this.queryInput.getValue()) + 1);
+    const shownPrefix = truncateToWidth(prefix, Math.max(0, width - visibleWidth(matchCount) - inputWidth), "");
     const arrow = (show: boolean, shaded: boolean) => {
       if (!show) return "";
       const text = " " + this.theme.fg("muted", "...");
@@ -530,7 +533,7 @@ export class PickerScreen implements Component, Focusable {
     while (padding.has(visibleEnd - 1) && visibleEnd > visibleStart) visibleEnd--;
     const lines = [this.theme.fg("dim", help),
       status ? this.theme.fg(this.copyState.kind === "error" ? "error" : "muted", status)
-        : shownPrefix + this.queryInput.render(Math.max(1, width - visibleWidth(shownPrefix)))[0],
+        : shownPrefix + this.queryInput.render(Math.max(1, width - visibleWidth(shownPrefix) - visibleWidth(matchCount)))[0] + matchCount,
       arrow(stream.content.slice(0, visibleStart).some(Boolean), !!stream.userBackground[visibleStart - 1] && !!stream.userBackground[visibleStart])];
     const cardRows = stream.lines.slice(visibleStart, visibleEnd);
     if (!stream.lines.length) cardRows.push(" No matching messages");

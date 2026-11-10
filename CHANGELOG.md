@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-11-10
+
+### Added
+
+- Show the number of matching items while searching.
+
+### Changed
+
+- Refactored message target parsing without changing selection or copy behavior.
+
 ## 1.0.0 - 2026-10-31
 
 ### Added

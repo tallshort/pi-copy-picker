@@ -6,14 +6,14 @@
 2. Set `origin` fetch and push URLs to that repository. If the repository changes, update `repository.url`, `homepage`, and `bugs.url` in `package.json` before publishing.
 3. Commit the package, lockfile, docs, and workflow on `main`. Push `main`. Keep the working tree clean. Do not commit `node_modules/`. The package publishes `src/` directly.
 4. Confirm that your npm account can publish the top-level package `pi-copy-picker`. The package name is not scoped; `tallshort` is the author. Use Node 24 and npm 11.5.1 or newer. Trusted publishing requires at least Node 22.14.0 and npm 11.5.1.
-5. Follow the README's isolated install and check procedure. From the checked sandbox copy, use an interactive npm login and publish the first version manually:
+5. Follow the [development setup](https://github.com/tallshort/pi-copy-picker/blob/main/DEVELOPMENT.md) and checks. From the checked copy, use an interactive npm login and publish the first version manually:
 
 ```sh
 	npm login
 	npm publish --access public
 ```
 
-The human runs these commands. No publication has been performed by this preparation task.
+The human runs these commands.
 A package must exist before its trusted publisher can be configured. Do not expect OIDC to bootstrap an unpublished package.
 The first manual publication does not claim GitHub Actions provenance.
 

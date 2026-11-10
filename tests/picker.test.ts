@@ -169,6 +169,32 @@ test("English empty states, tools, filtering and exact terminal dimensions", () 
     assert.ok(lines.every(line => visibleWidth(line) === width));
   }
 });
+test("search shows a dim count of matching messages and visible tools", () => {
+  const s = setup([item("a", "needle\n\n```js\nneedle\n```"), item("b", "NEEDLE", "user"),
+    { id: "tool", kind: "tool-call", toolName: "needle", rawText: "args" }]);
+  assert.doesNotMatch(s.plain()[1]!, /\d+ matches?/);
+  s.press("needle");
+  assert.ok(s.render()[1]!.includes(theme.fg("dim", "2 matches")));
+  assert.match(stripTerminalSequences(s.render()[1]!).trimEnd(), /type to search > needle\s+2 matches$/);
+  s.press("\x15"); s.press("```js");
+  assert.ok(s.render()[1]!.includes(theme.fg("dim", "1 match")));
+  s.press("\x15"); s.press("needle");
+  s.press(k.tools);
+  assert.ok(s.render()[1]!.includes(theme.fg("dim", "3 matches")));
+  for (const width of [32, 40, 60]) {
+    const lines = s.render(width);
+    assert.ok(lines.every(line => visibleWidth(line) === width));
+    const header = stripTerminalSequences(lines[1]!);
+    assert.match(header, /type to search > needle/);
+    if (width >= 40) assert.match(header.trimEnd(), /3 matches$/);
+    else assert.doesNotMatch(header, /3 matches/);
+  }
+  s.press("x");
+  assert.ok(s.render()[1]!.includes(theme.fg("dim", "0 matches")));
+  s.press("\x15");
+  assert.doesNotMatch(s.plain()[1]!, /\d+ matches?/);
+});
+
 
 test("clipboard is awaited, duplicate Enter ignored, success closes exactly once with original payload", async () => {
   let finish!: () => void;

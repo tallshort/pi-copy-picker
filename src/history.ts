@@ -85,51 +85,28 @@ export type PickTarget = Readonly<{
   rawText: string;
 } & ({ kind: "message" } | { kind: "block"; blockKind: "quote" | "code" | "inline-code"; language?: string; sourceText: string; sourceStart: number; sourceEnd: number; fence?: { opening: string; closing?: string } })>;
 
-// Source lines keep clipboard payloads independent of rendering.
-export function toPickTargets(message: PickItem): readonly PickTarget[] {
-  const parent: PickTarget = { kind: "message", id: message.id, messageId: message.id, message, rawText: message.rawText };
-  if (message.kind !== "user" && message.kind !== "assistant") return [parent];
-  if (message.segments && message.segments.length > 1) {
-    const sourceLines = message.rawText.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [];
-    const spans: { sourceStart: number; sourceEnd: number; entryId: string }[] = [];
-    for (const segment of message.segments) {
-      const last = spans.at(-1);
-      if (last?.entryId === segment.entryId) last.sourceEnd = segment.sourceEnd;
-      else spans.push({ ...segment });
-    }
-    const blocks = spans.flatMap(segment => {
-      const start = segment.sourceStart + (message.rawText[segment.sourceStart - 1] === "\r" && message.rawText[segment.sourceStart] === "\n" ? 1 : 0);
-      const offset = (message.rawText.slice(0, start).match(/\r\n|\r|\n/g) ?? []).length;
-      return toPickTargets({ ...message, segments: undefined, rawText: message.rawText.slice(start, segment.sourceEnd) })
-        .filter((target): target is Extract<PickTarget, { kind: "block" }> => target.kind === "block")
-        .map(target => ({ ...target, message, sourceStart: target.sourceStart + offset, sourceEnd: target.sourceEnd + offset,
-          id: `${message.id}:block:${target.sourceStart + offset}`,
-          sourceText: sourceLines.slice(target.sourceStart + offset, target.sourceEnd + offset).join("") }));
-    });
-    return [parent, ...blocks];
+function segmentBlocks(message: PickItem, segments: NonNullable<PickItem["segments"]>): PickTarget[] {
+  const sourceLines = message.rawText.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [];
+  const spans: { sourceStart: number; sourceEnd: number; entryId: string }[] = [];
+  for (const segment of segments) {
+    const last = spans.at(-1);
+    if (last?.entryId === segment.entryId) last.sourceEnd = segment.sourceEnd;
+    else spans.push({ ...segment });
   }
-  const lines = message.rawText.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [];
-  const blocks: PickTarget[] = [];
-  let rich = false;
+  const blocks = spans.flatMap(segment => {
+    const start = segment.sourceStart + (message.rawText[segment.sourceStart - 1] === "\r" && message.rawText[segment.sourceStart] === "\n" ? 1 : 0);
+    const offset = (message.rawText.slice(0, start).match(/\r\n|\r|\n/g) ?? []).length;
+    return toPickTargets({ ...message, segments: undefined, rawText: message.rawText.slice(start, segment.sourceEnd) })
+      .filter((target): target is Extract<PickTarget, { kind: "block" }> => target.kind === "block")
+      .map(target => ({ ...target, message, sourceStart: target.sourceStart + offset, sourceEnd: target.sourceEnd + offset,
+        id: `${message.id}:block:${target.sourceStart + offset}`,
+        sourceText: sourceLines.slice(target.sourceStart + offset, target.sourceEnd + offset).join("") }));
+  });
+  return blocks;
+}
+
+function analyzeMarkdownLines(rawText: string, lines: string[]) {
   const content = (line: string) => line.replace(/(?:\r\n|\r|\n)$/, "");
-  const unquote = (line: string) => line.replace(/^(?: {0,3}>[ \t]?)+/, "");
-  const listIndents: number[] = [];
-  const listContext = (line: string) => {
-    const text = unquote(content(line));
-    if (!text.trim()) return;
-    const indent = /^ */.exec(text)![0].length;
-    while (listIndents.length && indent < listIndents.at(-1)!) listIndents.pop();
-    const marker = /^( *)(?:[-+*]|\d+[.)])([ \t]+)/.exec(text);
-    if (marker && indent <= (listIndents.at(-1) ?? 0) + 3) {
-      const contentIndent = marker[0].length;
-      if (listIndents.at(-1) !== contentIndent) listIndents.push(contentIndent);
-    }
-  };
-  const codeIndent = () => (listIndents.at(-1) ?? 0) + 4;
-  const fence = (line: string) => {
-    const match = /^( *)(?:([-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})([^\r\n]*)$/.exec(unquote(content(line)));
-    return match && (match[1]!.length <= (listIndents.at(-1) ?? 0) + 3) ? match : null;
-  };
   const inlineCode = (line: string): string | undefined => {
     const text = content(line);
     const opener = /^ {0,3}(`+)(?!`)/.exec(text);
@@ -143,7 +120,6 @@ export function toPickTargets(message: PickItem): readonly PickTarget[] {
     }
     return undefined;
   };
-  const structure = (line: string) => /^(?: {0,3}(?:#{1,6}(?:\s|$)|>|[-+*]\s|\d+[.)]\s)| {4}|\t)|^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(content(line));
   const inlineCandidates = new Map<number, { line: number; raw: string; payload: string }>();
   let sourceOffset = 0;
   for (let line = 0; line < lines.length; line++) {
@@ -156,7 +132,7 @@ export function toPickTargets(message: PickItem): readonly PickTarget[] {
     sourceOffset += lines[line]!.replace(/\r\n|\r/g, "\n").length;
   }
   const inlineTargets = new Map<number, string>();
-  const normalized = message.rawText.replace(/\r\n|\r/g, "\n");
+  const normalized = rawText.replace(/\r\n|\r/g, "\n");
   const protectedLines = new Set<number>();
   {
     let offset = 0;
@@ -184,6 +160,38 @@ export function toPickTargets(message: PickItem): readonly PickTarget[] {
       offset += token.raw.length;
     }
   }
+  return { inlineTargets, protectedLines };
+}
+
+// Source lines keep clipboard payloads independent of rendering.
+export function toPickTargets(message: PickItem): readonly PickTarget[] {
+  const parent: PickTarget = { kind: "message", id: message.id, messageId: message.id, message, rawText: message.rawText };
+  if (message.kind !== "user" && message.kind !== "assistant") return [parent];
+  if (message.segments && message.segments.length > 1) return [parent, ...segmentBlocks(message, message.segments)];
+  const lines = message.rawText.match(/[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$/g) ?? [];
+  const blocks: PickTarget[] = [];
+  let rich = false;
+  const content = (line: string) => line.replace(/(?:\r\n|\r|\n)$/, "");
+  const unquote = (line: string) => line.replace(/^(?: {0,3}>[ \t]?)+/, "");
+  const listIndents: number[] = [];
+  const listContext = (line: string) => {
+    const text = unquote(content(line));
+    if (!text.trim()) return;
+    const indent = /^ */.exec(text)![0].length;
+    while (listIndents.length && indent < listIndents.at(-1)!) listIndents.pop();
+    const marker = /^( *)(?:[-+*]|\d+[.)])([ \t]+)/.exec(text);
+    if (marker && indent <= (listIndents.at(-1) ?? 0) + 3) {
+      const contentIndent = marker[0].length;
+      if (listIndents.at(-1) !== contentIndent) listIndents.push(contentIndent);
+    }
+  };
+  const codeIndent = () => (listIndents.at(-1) ?? 0) + 4;
+  const fence = (line: string) => {
+    const match = /^( *)(?:([-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})([^\r\n]*)$/.exec(unquote(content(line)));
+    return match && (match[1]!.length <= (listIndents.at(-1) ?? 0) + 3) ? match : null;
+  };
+  const structure = (line: string) => /^(?: {0,3}(?:#{1,6}(?:\s|$)|>|[-+*]\s|\d+[.)]\s)| {4}|\t)|^ {0,3}(?:(?:\*\s*){3,}|(?:-\s*){3,}|(?:_\s*){3,})$/.test(content(line));
+  const { inlineTargets, protectedLines } = analyzeMarkdownLines(message.rawText, lines);
   const inlineAt = (index: number) => inlineTargets.get(index);
   const add = (start: number, end: number, blockKind: "quote" | "code" | "inline-code", rawText = lines.slice(start, end).join(""), language?: string, fence?: { opening: string; closing?: string }) => {
     const sourceText = lines.slice(start, end).join("");

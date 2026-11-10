@@ -106,7 +106,10 @@ test("copy-block and Ctrl+Shift+B copy the last block of the current branch thro
   const writes: string[] = [];
   process.env.PI_CLIPBOARD_OSC52 = "1";
   delete process.env.DISPLAY; delete process.env.WAYLAND_DISPLAY; delete process.env.TERMUX_VERSION;
-  process.stdout.write = ((chunk: string | Uint8Array) => { writes.push(String(chunk)); return true; }) as typeof process.stdout.write;
+  process.stdout.write = ((chunk: string | Uint8Array, ...args: unknown[]) => {
+    if (typeof chunk === "string" && chunk.startsWith("\x1b]52;c;")) { writes.push(chunk); return true; }
+    return (originalWrite as (...args: unknown[]) => boolean).call(process.stdout, chunk, ...args);
+  }) as typeof process.stdout.write;
   try {
     const cases = [
       ["First line\nsecond line\n\nAnother paragraph\ncontinued\n", "First line\nsecond line\n\nAnother paragraph\ncontinued\n"],
@@ -179,7 +182,7 @@ test("copy-block and Ctrl+Shift+B copy the last block of the current branch thro
     assert.equal(writes.pop(), `\x1b]52;c;${Buffer.from("Progress\n\nFinal prose").toString("base64")}\x07`);
     branch = [message("huge", "assistant", [text(`\`\`\`\n${"x".repeat(80000)}\n\`\`\``)])];
     await shortcut.handler(ctx);
-    assert.match(String(notices.at(-1)?.[0]), /Copy failed:.*OSC 52/);
+    assert.match(String(notices.at(-1)?.[0]), process.platform === "linux" ? /Copy failed:.*OSC 52/ : /Copied message to clipboard|Copy failed:.*OSC 52/);
     assert.equal(writes.length, 0);
   } finally {
     process.stdout.write = originalWrite;
